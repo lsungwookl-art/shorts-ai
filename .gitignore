@@ -7,3 +7,4 @@ __pycache__/
 
 # 개인 분석 자료 (저장소에 올리지 않음)
 분석보고서.md
+.playwright-mcp/

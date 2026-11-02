@@ -164,6 +164,100 @@ def image_ext(data):
         ".webp" if data[:4] == b"RIFF" and data[8:12] == b"WEBP" else None
 
 
+# ---------- 인스타그램 스킬 연동 (~/.claude/skills 의 ig-reel / ig-human / ig-caption, 없으면 건너뜀) ----------
+SKILLS = Path.home() / ".claude" / "skills"
+
+
+def skill(name, file):
+    p = SKILLS / name / file
+    return p if p.exists() else None
+
+
+def reel_guide():
+    """ig-reel 의 훅 공식 26개와 규칙을 기획 프롬프트용으로. (hookscore.py 는 영어 전용이라 쓰지 않음)"""
+    p = skill("ig-reel", "hooks.json")
+    if not p:
+        return ""
+    d = json.loads(p.read_text(encoding="utf-8"))
+    forms = "\n".join(f"#{h['id']} {h['name']}: {h['template']} (예: {h['example']}) 용도: {h['best_for']} 주의: {h['trap']}"
+                      for h in d["hooks"])
+    rules = "\n".join(f"- {r}" for r in d.get("rules", []))
+    return f"""
+[ig-reel 스킬: 릴스 훅 공식과 규칙. 영어 예시는 참고만 하고 한국어로 자연스럽게 적용]
+{rules}
+- 인사·도입부("안녕하세요", "오늘 소개할") 금지. 첫 장면 narration 이 곧 훅이고 2초 안에 말할 수 있어야 한다.
+- 마지막 장면은 훅이 약속한 것을 전달하고 요청은 하나만. 마지막 문장에 훅의 단어 하나를 다시 써서 다시 보기로 이어지게.
+- caption(화면 큰 글씨)은 6단어 이하.
+- 아래 공식 중 상품에 맞는 서로 다른 공식 3개로 훅 후보(hooks)를 쓰고, 가장 좋은 하나를 chosen=true 로 표시해 첫 장면에 쓴다.
+훅 공식:
+{forms}
+"""
+
+
+def humanize(texts):
+    """ig-human 의 humanize.py 로 줄표·숨은 문자 같은 기계적 흔적을 지운다. (detect.py 점수는 영어 전용이라 쓰지 않음)"""
+    script = skill("ig-human", "humanize.py")
+    if not script or not texts:
+        return texts, 0
+    sep = "\n@@@@\n"
+    tmp = HERE / "shorts_out" / "_tmp" / f"h{time.time_ns()}.txt"
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    tmp.write_text(sep.join(texts), encoding="utf-8")
+    r = subprocess.run([sys.executable, str(script), str(tmp)], capture_output=True, text=True, encoding="utf-8", errors="replace")
+    tmp.unlink(missing_ok=True)
+    out = r.stdout.rstrip("\n").split(sep) if r.returncode == 0 else []
+    if len(out) != len(texts):  # 형식이 깨지면 원문 유지
+        return texts, 0
+    return out, sum(a != b for a, b in zip(texts, out))
+
+
+def polish(plan):
+    sc = plan["scenes"]
+    texts, n = humanize([s["narration"] for s in sc] + [s["caption"] for s in sc])
+    for i, s in enumerate(sc):
+        s["narration"], s["caption"] = texts[i], texts[len(sc) + i]
+    if n:
+        print(f"  ig-human: 문장 {n}곳의 기계적 흔적(줄표, 숨은 문자 등)을 다듬음", flush=True)
+    return plan
+
+
+CAPTION_SCHEMA = {"type": "object", "required": ["caption", "search_terms"], "properties": {
+    "caption": {"type": "string"}, "search_terms": {"type": "array", "items": {"type": "string"}}}}
+
+
+def make_caption(proj, ver):
+    """ig-caption 지침으로 인스타 캡션을 쓰고 caption.py 로 점검한다."""
+    plan, opt = load_version(proj, ver)
+    guide = skill("ig-caption", "SKILL.md")
+    info = (proj / "info.txt").read_text(encoding="utf-8") if (proj / "info.txt").exists() else ""
+    script = "\n".join(f"- {s['narration']}" for s in plan["scenes"])
+    print(f"v{ver} 영상의 인스타그램 캡션 작성 중 ({'ig-caption 스킬 지침' if guide else '기본 지침'})...", flush=True)
+    data = ask_claude(f"""아래 쇼츠(릴스)에 붙일 인스타그램 캡션을 한국어로 써라.
+- 이 영상은 첫 2초 훅이 이미 있다(Job A). 캡션은 두 번째 훅이 아니라 맥락, 요청 하나, 검색어를 담는다.
+- 첫 줄은 125자 안에서 완결되게. 인사·해시태그·이모지로 시작하지 마라.
+- 본문은 짧은 문단 2~4개, 문단 사이 빈 줄. 사람이 검색창에 칠 검색어 2~3개를 문장 안에 자연스럽게 넣고 search_terms 에도 적어라.
+- 요청은 하나(예: 댓글로 키워드 남기기, 저장하기). 링크 금지. 해시태그는 맨 아래 줄에 3~5개, 구체적인 것만.
+- 상품 정보와 대본에 없는 사실은 지어내지 마라. 상점명: {opt['shop'] or '없음'}
+{('[ig-caption 스킬 지침]' + chr(10) + guide.read_text(encoding='utf-8')) if guide else ''}
+
+[영상 대본]
+{script}
+
+[상품 정보]
+{info.strip() or '(없음)'}""", opt["model"], opt["effort"], schema_=CAPTION_SCHEMA)
+    (cap,), n = humanize([data["caption"].strip()])
+    out = proj / f"caption_v{ver}.txt"
+    write(out, cap)
+    report = ""
+    if lint := skill("ig-caption", "caption.py"):
+        r = subprocess.run([sys.executable, str(lint), str(out), "--keywords", ",".join(data.get("search_terms", []))],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        report = (r.stdout + "\n※ caption.py 는 영어 기준이라 한글 해시태그 개수, 숫자, 요청(CTA) 판정은 참고용입니다.").strip()
+    write(proj / f"caption_v{ver}_check.txt", report)
+    print(cap + ("\n\n" + report if report else ""), flush=True)
+    return out
+
+
 # ---------- 1. 상품 정보 수집 ----------
 def scrape(url, img_dir):
     page = urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=20).read().decode("utf-8", "replace")
@@ -197,6 +291,8 @@ def schema():
         "keyword": {"type": "string"},
         "bgm": {"enum": bgms} if bgms else {"type": "string"},
         "brightness": {"type": "number"},
+        "hooks": {"type": "array", "items": {"type": "object", "required": ["formula", "line", "chosen"], "properties": {
+            "formula": {"type": "string"}, "line": {"type": "string"}, "on_screen": {"type": "string"}, "chosen": {"type": "boolean"}}}},
         "scenes": {"type": "array", "items": {"type": "object",
                    "required": ["narration", "caption", "image", "seconds", "motion"], "properties": {
                        "narration": {"type": "string"}, "caption": {"type": "string"}, "image": {"type": "integer"},
@@ -204,19 +300,72 @@ def schema():
                        "clip_start": {"type": "number"}}}}}}
 
 
-def ask_claude(prompt, model, effort, see_dir=None):
-    """see_dir 를 주면 그 폴더 안 이미지를 Claude 가 Read 도구로 직접 본다(읽기 전용)."""
+GPT_MODELS = {"gpt-5.6-terra": "GPT-5.6 Terra", "gpt-5.6-luna": "GPT-5.6 Luna"}  # ChatGPT 계정 Codex 에서 쓸 수 있는 모델
+
+
+def strict(s):
+    """OpenAI 구조화 출력 규칙: 모든 속성 required + additionalProperties false. 선택 속성은 null 허용."""
+    s = copy.deepcopy(s)
+    if s.get("type") == "object":
+        req = set(s.get("required", []))
+        props = {k: strict(v) for k, v in s.get("properties", {}).items()}
+        s["properties"] = {k: v if k in req else {"anyOf": [v, {"type": "null"}]} for k, v in props.items()}
+        s["required"], s["additionalProperties"] = list(props), False
+    elif s.get("type") == "array":
+        s["items"] = strict(s["items"])
+    return s
+
+
+def drop_nulls(x):
+    if isinstance(x, dict):
+        return {k: drop_nulls(v) for k, v in x.items() if v is not None}
+    return [drop_nulls(v) for v in x] if isinstance(x, list) else x
+
+
+def ask_gpt(prompt, model, effort, see_dir=None, schema_=None):
+    """ChatGPT 계정으로 로그인한 Codex CLI 로 GPT 를 부른다. 이미지는 첨부(-i), 읽기 전용 샌드박스."""
+    exe = shutil.which("codex") or sys.exit("Codex CLI 미설치: npm i -g @openai/codex 후 codex login (ChatGPT 계정)")
+    tmp = HERE / "shorts_out" / "_tmp"
+    tmp.mkdir(parents=True, exist_ok=True)
+    sch, out = tmp / f"s{time.time_ns()}.json", tmp / f"o{time.time_ns()}.json"
+    sch.write_text(json.dumps(strict(schema_ or schema()), ensure_ascii=False), encoding="utf-8")
+    imgs = sum((["-i", str(p)] for p in sorted(Path(see_dir, "vision").glob("*.jpg"))), []) if see_dir else []
+    # 사용자 설정(MCP 서버, 기본 모델 등)·규칙·플러그인·앱을 불러오지 않는 최소 실행
+    r = subprocess.run([exe, "exec", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--skip-git-repo-check",
+                        "-s", "read-only", "-c", "features.plugins=false", "-c", "features.apps=false",
+                        "-m", model, "-c", f"model_reasoning_effort={effort}", *imgs,
+                        "--output-schema", str(sch), "-o", str(out), "--json", "-"],
+                       input=prompt, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=see_dir or tmp)
+    sch.unlink(missing_ok=True)
+    if not out.exists():
+        errs = [json.loads(l).get("error", {}).get("message") or json.loads(l).get("message")
+                for l in r.stdout.splitlines() if l.startswith("{") and '"error"' in l and "turn" in l]
+        msg = (errs[-1] if errs else (r.stderr or r.stdout)[-1500:]) or "알 수 없는 오류"
+        hint = "\n-> PowerShell 에서 codex login 으로 ChatGPT 계정 로그인을 확인하세요." if re.search(r"auth|login|401", msg, re.I) else ""
+        sys.exit(f"GPT(Codex) 오류: {msg}{hint}")
+    data = json.loads(out.read_text(encoding="utf-8"))
+    out.unlink(missing_ok=True)
+    return drop_nulls(data)
+
+
+def ask_claude(prompt, model, effort, see_dir=None, schema_=None):
+    """see_dir 를 주면 그 폴더 안 이미지를 Claude 가 Read 도구로 직접 본다(읽기 전용). GPT 모델이면 Codex 로."""
+    if model in GPT_MODELS:
+        return ask_gpt(prompt, model, effort, see_dir, schema_)
     exe = shutil.which("claude") or sys.exit("Claude Code 미설치: PowerShell 에서 irm https://claude.ai/install.ps1 | iex 후 claude 로그인")
     tools = ["--tools", "Read", "--allowedTools", "Read"] if see_dir else ["--tools", ""]
-    r = subprocess.run([exe, "-p", "--model", model, "--effort", effort, *tools,
-                        "--output-format", "json", "--json-schema", json.dumps(schema(), ensure_ascii=False)],
+    # --safe-mode: 이 PC 의 MCP 서버·플러그인·스킬·CLAUDE.md 를 불러오지 않음 (호출당 입력 약 55만 -> 3천 토큰)
+    r = subprocess.run([exe, "-p", "--safe-mode", "--strict-mcp-config", "--model", model, "--effort", effort, *tools,
+                        "--output-format", "json", "--json-schema", json.dumps(schema_ or schema(), ensure_ascii=False)],
                        input=prompt, capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=see_dir)
     try:
         res = json.loads(r.stdout)
     except json.JSONDecodeError:
         sys.exit(f"Claude Code 실행 실패:\n{(r.stderr or r.stdout)[-2000:]}")
     if res.get("is_error"):
-        sys.exit(f"Claude Code 오류: {res.get('result')}\n-> PowerShell 에서 claude 실행 후 /login 으로 다시 로그인하세요.")
+        msg = str(res.get("result"))
+        hint = "\n-> PowerShell 에서 claude 실행 후 /login 으로 다시 로그인하세요." if re.search(r"auth|login", msg, re.I) else ""
+        sys.exit(f"Claude Code 오류: {msg}{hint}")
     data = res.get("structured_output") or res.get("result")
     if isinstance(data, str):
         data = json.loads(re.search(r"\{.*\}", data, re.S).group(0))
@@ -225,7 +374,8 @@ def ask_claude(prompt, model, effort, see_dir=None):
 
 def plan_prompt(info, media, opt):
     t = TEMPLATES[opt["template"]]
-    see = (f"먼저 Read 도구로 아래 미리보기 이미지를 모두 열어 상품 생김새·색·특징·각 컷의 장면을 직접 확인해라.\n"
+    see = (f"먼저 아래 미리보기 이미지를 모두 확인해 상품 생김새·색·특징·각 컷의 장면을 직접 봐라 "
+           f"(Read 도구로 열거나, 첨부된 경우 첨부 순서 = 미디어 번호).\n"
            + "\n".join(media)) if media else "미디어 없음 (image 는 0)"
     return f"""너는 쇼핑몰 숏폼 광고 기획자다. 아래 상품 정보와 미디어로 {opt['seconds']}초 세로형 쇼츠를 설계해라.
 - 템플릿: {t[0]} ({t[1]})
@@ -238,6 +388,7 @@ def plan_prompt(info, media, opt):
 - bgm 은 상품 분위기에 맞는 곡을 목록에서 고른다: {', '.join(bgm_list())}
 - brightness 는 0(기본). 상품 정보나 미디어에서 확인되지 않는 사실(인증, 수치, 효능)은 지어내지 마라.
   상품 정보 텍스트가 없으면 미디어에서 보이는 것만으로 쓴다.
+{reel_guide()}
 
 [미디어]
 {see}
@@ -508,6 +659,9 @@ def main():
     s = sub.add_parser("restore")
     s.add_argument("project")
     s.add_argument("version", type=int)
+    c = sub.add_parser("caption", help="인스타그램 캡션 작성 (ig-caption)")
+    c.add_argument("project")
+    c.add_argument("version", type=int, nargs="?")
     t = sub.add_parser("thumb")
     t.add_argument("project")
     t.add_argument("version", type=int, nargs="?")
@@ -530,14 +684,18 @@ def main():
             n = len(n)
             if a.info:
                 info += "\n" + Path(a.info).read_text(encoding="utf-8")
+            if info.strip():
+                write(proj / "info.txt", info.strip())  # 캡션 작성 때 다시 씀
             for p in files:
                 shutil.copy(p, proj / "img" / f"{n:02d}{p.suffix.lower()}")
                 n += 1
             media = prepare_media(proj)
             vids = sum("영상" in m for m in media)
             print(f"상품 정보 {len(info.strip())}자, 사진 {len(media) - vids}장, 영상 {vids}개 수집. "
-                  f"Claude({opt['model']}, {opt['effort']})가 미디어를 보고 기획 중...", flush=True)
+                  f"{'GPT' if opt['model'] in GPT_MODELS else 'Claude'}({opt['model']}, {opt['effort']})가 미디어를 보고 기획 중...", flush=True)
             plan = ask_claude(plan_prompt(info, media, opt), opt["model"], opt["effort"], see_dir=proj.resolve() if media else None)
+            for h in plan.get("hooks", []):
+                print(f"  훅 후보 {'★' if h.get('chosen') else ' '} [{h['formula']}] {h['line']}", flush=True)
         except BaseException:
             shutil.rmtree(proj, ignore_errors=True)  # 수집/기획 실패 시 빈 프로젝트 폴더를 남기지 않음
             raise
@@ -547,6 +705,9 @@ def main():
         vs = versions(proj)
         if a.cmd == "thumb":
             print(f"완료: {thumbnail(proj, a.version or vs[-1])}")
+            return
+        if a.cmd == "caption":
+            print(f"완료: {make_caption(proj, a.version or vs[-1])}")
             return
         if a.cmd == "restore":
             new = vs[-1] + 1
@@ -567,8 +728,9 @@ def main():
                 f"- 배경 밝기는 brightness(-0.3 어둡게 ~ 0.3 밝게), 움직임은 motion({', '.join(MOTIONS)}),\n"
                 f"- bgm 은 목록 중에서: {', '.join(bgm_list())}\n요청: {a.request}\n\n{json.dumps(prev, ensure_ascii=False)}",
                 opt["model"], opt["effort"])
+            plan.setdefault("hooks", prev.get("hooks", []))
         ver = vs[-1] + 1
-    out = render(proj, ver, plan, opt)
+    out = render(proj, ver, polish(plan), opt)
     print(f"완료: {out}")
 
 

@@ -58,14 +58,18 @@ def projects():
 
 
 def claude_status():
-    exe = shutil.which("claude")
-    if not exe:
-        return {"installed": False, "loggedIn": False}
+    exe, cx = shutil.which("claude"), shutil.which("codex")
+    st = {"installed": bool(exe), "loggedIn": False, "codex": bool(cx), "codexLoggedIn": False}
     try:
-        r = subprocess.run([exe, "auth", "status"], capture_output=True, text=True, timeout=20)
-        return {"installed": True, "loggedIn": bool(json.loads(r.stdout).get("loggedIn"))}
+        if exe:
+            r = subprocess.run([exe, "auth", "status"], capture_output=True, text=True, timeout=20)
+            st["loggedIn"] = bool(json.loads(r.stdout).get("loggedIn"))
+        if cx:  # "Logged in using ChatGPT"
+            r = subprocess.run([cx, "login", "status"], capture_output=True, text=True, timeout=20)
+            st["codexLoggedIn"] = "logged in" in (r.stdout + r.stderr).lower()
     except Exception:
-        return {"installed": True, "loggedIn": False}
+        pass
+    return st
 
 
 def meta():
@@ -73,7 +77,8 @@ def meta():
     return {"templates": {k: {"label": t[0], "desc": t[1], "styles": t[2]} for k, t in shorts.TEMPLATES.items()},
             "voices": {k: v[0] for k, v in shorts.VOICES.items()}, "fonts": list(shorts.FONTS),
             "bgms": shorts.bgm_list(), "defaults": shorts.DEFAULT_OPTS, "motions": shorts.MOTIONS,
-            "transitions": shorts.TRANSITIONS, "downloads": str(Path.home() / "Downloads")}
+            "transitions": shorts.TRANSITIONS, "gpt_models": shorts.GPT_MODELS, "downloads": str(Path.home() / "Downloads"),
+            "skills": {n: bool(shorts.skill(n, "SKILL.md")) for n in ("ig-reel", "ig-human", "ig-caption")}}
 
 
 def safe_name(name, exts):
@@ -115,7 +120,10 @@ class H(BaseHTTPRequestHandler):
                 plan, opts = shorts.load_version(p, int(m.group(2)))
                 if not (p / "vision").exists():
                     shorts.prepare_media(p)
+                cap, chk = p / f"caption_v{m.group(2)}.txt", p / f"caption_v{m.group(2)}_check.txt"
                 return self.send({"plan": plan, "opts": opts, "styles": shorts.styles_for(opts),
+                                  "caption": cap.read_text(encoding="utf-8") if cap.exists() else "",
+                                  "caption_check": chk.read_text(encoding="utf-8") if chk.exists() else "",
                                   "media": [{"video": shorts.is_video(m), "dur": round(shorts.duration(m), 1) if shorts.is_video(m) else 0}
                                             for m in shorts.media_files(p)]})
         if m := re.fullmatch(r"/media/([^/]+)/([^/]+)", path):
@@ -188,6 +196,8 @@ class H(BaseHTTPRequestHandler):
                                                 "--opts", tmp_json(body.get("opts") or {})])})
         if url.path == "/api/restore":
             return self.send({"job": start_job(["restore", str(proj), v])})
+        if url.path == "/api/caption":
+            return self.send({"job": start_job(["caption", str(proj), v])})
         if url.path == "/api/thumb":
             return self.send({"job": start_job(["thumb", str(proj), v])})
         if url.path == "/api/save":

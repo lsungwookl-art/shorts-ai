@@ -57,7 +57,7 @@ pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:
 .kv{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
 .val{color:var(--text);font-weight:600}
 </style></head><body>
-<header><h1>AI 쇼츠 자동 생성기</h1><span id="claude" class="badge">Claude Code 확인 중…</span></header>
+<header><h1>AI 쇼츠 자동 생성기</h1><span id="skills" class="badge" title="~/.claude/skills 에서 찾은 인스타그램 스킬"></span><span id="claude" class="badge">Claude Code 확인 중…</span><span id="gpt" class="badge" hidden></span></header>
 <main>
 <div class="col" id="left">
   <section>
@@ -130,10 +130,10 @@ pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:
   <section>
     <h2>8. AI 설정</h2>
     <div class="row">
-      <div><label>모델</label><select id="o_model"><option value="opus">Opus 5.5</option><option value="sonnet">Sonnet 5.5</option><option value="haiku">Haiku 5.5</option></select></div>
+      <div><label>모델</label><select id="o_model"><optgroup label="Claude (Claude Code)"><option value="opus">Opus 5.5</option><option value="sonnet">Sonnet 5.5</option><option value="haiku">Haiku 5.5</option></optgroup><optgroup label="GPT (Codex, ChatGPT 계정)" id="gptModels"></optgroup></select></div>
       <div><label>추론</label><select id="o_effort"><option value="low">낮음 (빠름)</option><option value="medium">보통</option><option value="high">높음 (느림)</option></select></div>
     </div>
-    <div class="hint">추론을 낮추거나 하위 모델을 쓰면 빨라지지만 품질이 떨어질 수 있습니다. 1개 생성 약 2~3분, Claude 사용량이 차감됩니다.</div>
+    <div class="hint">추론을 낮추거나 하위 모델을 쓰면 빨라지지만 품질이 떨어질 수 있습니다. 1개 생성 약 1~3분, 고른 쪽(Claude 또는 ChatGPT) 계정 사용량이 차감됩니다.</div>
   </section>
   <button class="go" id="go">AI로 영상 만들기</button>
   <div style="height:12px"></div>
@@ -151,7 +151,14 @@ pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:
       <button class="btn" id="restore" disabled>이 버전으로 복원</button>
     </div>
     <div id="thumbView"></div>
+    <div id="hooks"></div>
     <pre id="log" hidden></pre>
+  </section>
+  <section>
+    <div class="row" style="align-items:center"><h2 style="margin:0">인스타그램 캡션 <small style="color:var(--sub);font-weight:400">(ig-caption, AI 사용)</small></h2>
+      <button class="btn" id="caption" disabled>캡션 만들기</button><button class="btn" id="capCopy" hidden>복사</button></div>
+    <textarea id="capText" rows="8" hidden style="margin-top:10px"></textarea>
+    <details id="capCheckBox" hidden><summary class="hint" style="cursor:pointer">캡션 점검 결과 (caption.py)</summary><pre id="capCheck"></pre></details>
   </section>
   <section>
     <h2>말로 수정하기 <small style="color:var(--sub);font-weight:400">(AI 사용, 보고 있는 버전 기준)</small></h2>
@@ -286,6 +293,10 @@ async function checkClaude() {
   b.className = "badge " + (s.loggedIn ? "ok" : "bad");
   b.textContent = !s.installed ? "Claude Code 미설치" : s.loggedIn ? "Claude Code 연결됨" : "Claude Code 로그인 필요";
   b.title = s.loggedIn ? "" : "PowerShell 에서 claude 실행 후 /login";
+  const g = $("gpt"); g.hidden = false;
+  g.className = "badge " + (s.codexLoggedIn ? "ok" : "bad");
+  g.textContent = !s.codex ? "GPT(Codex) 미설치" : s.codexLoggedIn ? "GPT(Codex) 연결됨" : "GPT(Codex) 로그인 필요";
+  g.title = s.codexLoggedIn ? "" : "PowerShell 에서 codex login (ChatGPT 계정)";
 }
 async function refresh(selName, selV) {
   projs = await api("/api/projects");
@@ -309,7 +320,11 @@ async function open(name, v) {
   $("vers").querySelectorAll("button").forEach(b => b.onclick = () => open(name, +b.dataset.v));
   $("thumbView").innerHTML = p.thumbs.includes(v) ? `<div class="hint">썸네일 v${v}: <a href="/media/${encodeURIComponent(name)}/thumb_v${v}.jpg" target="_blank">열기</a></div>
     <img src="/media/${encodeURIComponent(name)}/thumb_v${v}.jpg?t=${Date.now()}" style="width:120px;border-radius:8px;margin-top:6px">` : "";
-  ["save", "thumb", "restore", "edit", "rerender", "addScene"].forEach(id => $(id).disabled = false);
+  ["save", "thumb", "restore", "edit", "rerender", "addScene", "caption"].forEach(id => $(id).disabled = false);
+  $("hooks").innerHTML = (plan.hooks || []).length ? `<div class="hint" style="margin-top:10px">훅 후보 (ig-reel 공식)</div>` +
+    plan.hooks.map(h => `<div class="hint" style="color:var(--text)">${h.chosen ? "★" : "·"} <b>${esc(h.formula)}</b> ${esc(h.line)}</div>`).join("") : "";
+  $("capText").value = d.caption; $("capText").hidden = $("capCopy").hidden = !d.caption;
+  $("capCheck").textContent = d.caption_check; $("capCheckBox").hidden = !d.caption_check;
   $("restore").disabled = v === p.versions.at(-1);
   [...$("plist").children].forEach(li => li.classList.toggle("on", li.dataset.n === name));
 }
@@ -347,7 +362,7 @@ $("p_brightness").oninput = e => { if (plan) plan.brightness = +e.target.value; 
 $("addScene").onclick = () => { plan.scenes.push({narration: "새 문장이에요.", caption: "새 장면", image: 0, seconds: 2.5, motion: "zoomin"}); sceneEditor(); };
 
 /* ---------- 작업 실행 ---------- */
-const BUSY = ["go", "edit", "rerender", "thumb", "restore", "save"];
+const BUSY = ["go", "edit", "rerender", "thumb", "restore", "save", "caption"];
 async function run(path, body) {
   BUSY.forEach(id => $(id).disabled = true);
   const log = $("log"); log.hidden = false; log.textContent = "시작…";
@@ -358,20 +373,22 @@ async function run(path, body) {
       const j = await api("/api/job/" + job);
       log.textContent = j.log.join("\n"); log.scrollTop = log.scrollHeight;
       if (j.done) {
-        if (j.ok) await refresh(j.project || cur.name, path === "/api/thumb" ? cur.v : j.version);
+        if (j.ok) await refresh(j.project || cur.name, ["/api/thumb", "/api/caption"].includes(path) ? cur.v : j.version);
         else log.textContent += "\n\n실패했습니다.";
         break;
       }
     }
   } catch (e) { log.textContent = "오류: " + e.message; }
   $("go").disabled = false;
-  if (cur.name) ["edit", "rerender", "thumb", "save"].forEach(id => $(id).disabled = false);
+  if (cur.name) ["edit", "rerender", "thumb", "save", "caption"].forEach(id => $(id).disabled = false);
 }
 $("go").onclick = () => run("/api/new", {url: $("url").value, info: $("info").value, batch, opts});
 $("edit").onclick = () => run("/api/edit", {project: cur.name, v: cur.v, request: $("req").value});
 $("rerender").onclick = () => run("/api/rerender", {project: cur.name, v: cur.v, plan, opts});
 $("restore").onclick = () => run("/api/restore", {project: cur.name, v: cur.v});
 $("thumb").onclick = () => run("/api/thumb", {project: cur.name, v: cur.v});
+$("caption").onclick = () => run("/api/caption", {project: cur.name, v: cur.v});
+$("capCopy").onclick = async () => { await navigator.clipboard.writeText($("capText").value); $("capCopy").textContent = "복사됨"; setTimeout(() => $("capCopy").textContent = "복사", 1500); };
 $("save").onclick = async () => {
   try { const r = await api("/api/save", {project: cur.name, v: cur.v, dest: $("dest").value});
     $("log").hidden = false; $("log").textContent = "저장됨: " + r.saved; }
@@ -382,12 +399,15 @@ $("save").onclick = async () => {
   M = await api("/api/meta");
   opts = clone(M.defaults); opts.styles = clone(M.templates[opts.template].styles);
   $("tpl").innerHTML = Object.entries(M.templates).map(([k, t]) => `<button data-v="${k}">${esc(t.label)}<small>${esc(t.desc)}</small></button>`).join("");
+  $("gptModels").innerHTML = Object.entries(M.gpt_models).map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("");
   fillSelect($("o_voice"), Object.entries(M.voices));
   fillSelect($("o_motion"), [["auto", "AI 자동"], ["random", "랜덤"], ["zoomin", "확대"], ["zoomout", "축소"], ["panleft", "왼쪽 이동"], ["panright", "오른쪽 이동"], ["panup", "위로 이동"], ["pandown", "아래로 이동"]]);
   fillSelect($("o_transition"), [["none", "없음 (컷)"], ["fade", "페이드"], ["slideup", "위로 밀기"], ["slideleft", "왼쪽 밀기"], ["wipeleft", "와이프"], ["zoomin", "줌"], ["circleopen", "원형"], ["dissolve", "디졸브"], ["random", "랜덤"]]);
   bgmOptions();
   $("dest").value = M.downloads;
   bindPanel(); toPanel();
+  const sk = Object.entries(M.skills).filter(([, on]) => on).map(([n]) => n);
+  $("skills").textContent = sk.length ? "인스타 스킬: " + sk.join(" · ") : "인스타 스킬 없음 (기본 동작)";
   checkClaude(); refresh();
 })();
 </script></body></html>
