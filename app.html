@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI 쇼츠 생성기</title>
+<style>
+:root{--bg:#f4f5f7;--panel:#fff;--line:#e2e5ea;--text:#1c1f24;--sub:#6b7280;--accent:#3b5bfd;--accent2:#eef1ff;--ok:#16a34a;--bad:#dc2626}
+@media (prefers-color-scheme:dark){:root{--bg:#121418;--panel:#1b1e24;--line:#2b2f37;--text:#e8eaed;--sub:#9aa1ab;--accent:#7b93ff;--accent2:#232a45}}
+*{box-sizing:border-box}html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 "Malgun Gothic",system-ui,sans-serif;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:17px;margin:0;flex:1}
+.badge{font-size:12px;padding:4px 10px;border-radius:99px;border:1px solid var(--line)}
+.badge.ok{color:var(--ok);border-color:var(--ok)}.badge.bad{color:var(--bad);border-color:var(--bad)}
+main{flex:1;display:grid;grid-template-columns:400px 1fr 260px;gap:14px;padding:14px 20px;min-height:0}
+@media (max-width:1150px){main{grid-template-columns:1fr;}}
+.col{overflow-y:auto;overflow-x:hidden;min-height:0;min-width:0}
+.row .btn{flex:0 0 auto}
+section{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+h2{font-size:14px;margin:0 0 6px}
+label{display:block;font-size:12px;color:var(--sub);margin:10px 0 4px}
+input,textarea,select{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+input[type=range]{padding:0}input[type=color]{padding:2px;height:32px}
+input[type=checkbox],input[type=radio]{width:auto;margin:0}
+textarea{resize:vertical;min-height:64px}
+.row{display:flex;gap:8px;align-items:end}.row>*{flex:1;min-width:0}
+.check{display:flex;align-items:center;gap:8px;margin-top:10px;color:var(--text);font-size:13px}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{flex:1;padding:7px 4px;border:0;background:var(--bg);color:var(--text);cursor:pointer;font:inherit;font-size:13px}
+.seg button.on{background:var(--accent);color:#fff}
+.tpl{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tpl button{padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);cursor:pointer;font:inherit;text-align:left}
+.tpl button small{display:block;color:var(--sub);font-size:11px;line-height:1.35;margin-top:2px}
+.tpl button.on{border-color:var(--accent);outline:2px solid var(--accent);background:var(--accent2)}
+.btn{padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);cursor:pointer;font:inherit;white-space:nowrap}
+.btn:hover{border-color:var(--accent)}.btn:disabled{opacity:.45;cursor:not-allowed}
+.go{width:100%;padding:12px;border:0;border-radius:10px;background:var(--accent);color:#fff;font:600 15px "Malgun Gothic",system-ui;cursor:pointer}
+.go:disabled{opacity:.5;cursor:wait}
+.stage{display:flex;justify-content:center;background:#000;border-radius:10px;min-height:260px;align-items:center}
+video{max-height:58vh;max-width:100%;aspect-ratio:9/16;background:#000}
+.empty{color:#888;padding:40px;text-align:center}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;max-height:130px;overflow:auto;font-size:12px;white-space:pre-wrap;margin:10px 0 0}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center}
+.chips button{padding:3px 10px;border:1px solid var(--line);border-radius:99px;background:var(--bg);color:var(--text);cursor:pointer}
+.chips button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.plist{list-style:none;margin:0;padding:0}
+.plist li{display:flex;gap:8px;align-items:center;padding:7px;border-radius:8px;cursor:pointer;border:1px solid transparent;word-break:break-all}
+.plist li:hover{background:var(--bg)}.plist li.on{border-color:var(--accent)}
+.plist img{width:44px;height:44px;object-fit:cover;border-radius:6px;background:var(--bg);flex:none}
+.plist small{color:var(--sub)}
+.scene{display:grid;grid-template-columns:62px 1fr;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
+.scene img{width:62px;height:62px;object-fit:cover;border-radius:6px;cursor:pointer;background:var(--bg)}
+.scene .f{display:grid;grid-template-columns:1fr 1fr 70px 70px 32px;gap:6px}
+.scene textarea{min-height:40px}
+.thumbs{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.thumbs img{width:46px;height:46px;object-fit:cover;border-radius:6px}
+.hint{font-size:12px;color:var(--sub);margin-top:6px}
+.styles .tabs{margin-bottom:4px}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+.val{color:var(--text);font-weight:600}
+</style></head><body>
+<header><h1>AI 쇼츠 자동 생성기</h1><span id="claude" class="badge">Claude Code 확인 중…</span></header>
+<main>
+<div class="col" id="left">
+  <section>
+    <h2>1. 콘텐츠 소스</h2>
+    <label>상품 상세페이지 URL</label><input id="url" placeholder="https://...">
+    <label>내 자료 (로그인 필요/스크래핑 차단 사이트는 직접 입력)</label>
+    <textarea id="info" placeholder="상품명, 특징, 색상, 크기, 원산지 등"></textarea>
+    <label>사진 · 영상 (여러 개, 이것만 넣어도 AI가 보고 만듭니다)</label><input type="file" id="imgs" accept="image/*,video/*" multiple>
+    <div class="thumbs" id="imgprev"></div>
+  </section>
+
+  <section>
+    <h2>2. 상점 표시</h2>
+    <div class="row">
+      <div><label>상점명 (워터마크)</label><input id="o_shop" placeholder="메이커몰"></div>
+      <div><label>표기 위치</label><div class="seg" data-opt="shop_pos"><button data-v="auto">자동</button><button data-v="manual">수동</button></div></div>
+    </div>
+    <div class="hint" id="shopHint">수동: 아래 텍스트 디자인 > 브랜드(상점명)에서 X·Y 위치 조정</div>
+    <label class="check"><input type="checkbox" id="o_ai_mark"> AI 제작 표기 (플랫폼 권장)</label>
+  </section>
+
+  <section>
+    <h2>3. 템플릿</h2>
+    <div class="tpl" id="tpl"></div>
+  </section>
+
+  <section>
+    <h2>4. 영상</h2>
+    <label>영상 길이 <span class="val" id="secv"></span>초</label><input id="o_seconds" type="range" min="20" max="60" step="5">
+    <label>템포</label><div class="seg" data-opt="tempo"><button data-v="fast">빠르게</button><button data-v="normal">보통</button><button data-v="slow">느리게</button></div>
+    <div class="row">
+      <div><label>이미지 움직임</label><select id="o_motion"></select></div>
+      <div><label>장면 전환</label><select id="o_transition"></select></div>
+    </div>
+    <label>텍스트 삽입 방식</label>
+    <div class="seg" data-opt="text_mode"><button data-v="video">영상 위 (고정)</button><button data-v="image">이미지 위 (같이 움직임)</button></div>
+    <div class="hint">이미지 위 삽입은 다이내믹 자막형에서 적용됩니다.</div>
+  </section>
+
+  <section>
+    <h2>5. 음성 · 사운드</h2>
+    <label>AI 음성 (TTS)</label>
+    <div class="row"><select id="o_voice"></select><button class="btn" id="voicePlay">▶ 미리듣기</button></div>
+    <label>배경음악 (BGM)</label>
+    <div class="row"><select id="o_bgm"></select><button class="btn" id="bgmPlay">▶</button>
+      <label class="btn" style="margin:0;color:var(--text);font-size:14px">추가<input type="file" id="bgmUp" accept="audio/*" hidden></label></div>
+    <div class="hint">직접 추가하는 음악은 상업적 이용·출처 표기 조건을 확인하세요.</div>
+    <label>BGM 볼륨 <span class="val" id="bgmv"></span></label><input id="o_bgm_volume" type="range" min="0" max="0.6" step="0.05">
+    <label class="check"><input type="checkbox" id="o_sfx"> 효과음 (장면 전환·글자 등장)</label>
+    <label class="check"><input type="checkbox" id="o_subtitles"> 자막 (내레이션 문장 표시)</label>
+    <audio id="player" hidden></audio>
+  </section>
+
+  <section class="styles">
+    <div class="row" style="align-items:center"><h2 style="margin:0">6. 텍스트 디자인</h2>
+      <button class="btn" id="styleReset">템플릿 기본값</button></div>
+    <div class="seg tabs" id="stab" style="margin-top:10px"><button data-v="caption" class="on">제목 (큰 글씨)</button><button data-v="subtitle">설명 (자막)</button><button data-v="shop">브랜드 (상점명)</button></div>
+    <div id="sform"></div>
+  </section>
+
+  <section>
+    <h2>7. 출력</h2>
+    <div class="row">
+      <div><label>해상도 (9:16)</label><select id="o_res"><option value="1080x1920">1080×1920 (FHD)</option><option value="720x1280">720×1280 (HD)</option></select></div>
+      <div><label>프레임</label><select id="o_fps"><option value="30">30fps</option><option value="60">60fps</option></select></div>
+      <div><label>형식</label><select disabled><option>MP4 (H.264)</option></select></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>8. AI 설정</h2>
+    <div class="row">
+      <div><label>모델</label><select id="o_model"><option value="opus">Opus 5.5</option><option value="sonnet">Sonnet 5.5</option><option value="haiku">Haiku 5.5</option></select></div>
+      <div><label>추론</label><select id="o_effort"><option value="low">낮음 (빠름)</option><option value="medium">보통</option><option value="high">높음 (느림)</option></select></div>
+    </div>
+    <div class="hint">추론을 낮추거나 하위 모델을 쓰면 빨라지지만 품질이 떨어질 수 있습니다. 1개 생성 약 2~3분, Claude 사용량이 차감됩니다.</div>
+  </section>
+  <button class="go" id="go">AI로 영상 만들기</button>
+  <div style="height:12px"></div>
+</div>
+
+<div class="col">
+  <section>
+    <h2 id="title">미리보기</h2>
+    <div class="stage" id="stage"><div class="empty">영상을 만들면 여기에 표시됩니다</div></div>
+    <div class="chips" id="vers"></div>
+    <div class="actions">
+      <input id="dest" style="flex:1;min-width:180px" title="저장 폴더">
+      <button class="btn" id="save" disabled>MP4 저장</button>
+      <button class="btn" id="thumb" disabled>썸네일 만들기</button>
+      <button class="btn" id="restore" disabled>이 버전으로 복원</button>
+    </div>
+    <div id="thumbView"></div>
+    <pre id="log" hidden></pre>
+  </section>
+  <section>
+    <h2>말로 수정하기 <small style="color:var(--sub);font-weight:400">(AI 사용, 보고 있는 버전 기준)</small></h2>
+    <div class="row"><input id="req" placeholder="첫 장면 제목을 더 크게, 마지막 장면을 1초 늘려줘, 전체 배경을 밝은 톤으로">
+      <button class="btn" id="edit" disabled>수정</button></div>
+  </section>
+  <section>
+    <div class="row" style="align-items:center"><h2 style="margin:0">장면 직접 수정 <small style="color:var(--sub);font-weight:400">(AI 사용 안 함)</small></h2>
+      <button class="btn" id="addScene" disabled>+ 장면</button></div>
+    <div class="row">
+      <div><label>검색어 (검색 시나리오형)</label><input id="p_keyword"></div>
+      <div><label>배경 밝기 <span class="val" id="brv"></span></label><input id="p_brightness" type="range" min="-0.3" max="0.3" step="0.05"></div>
+    </div>
+    <div id="scenes"><div class="hint">영상을 선택하면 장면 목록이 표시됩니다. 이미지를 누르면 다음 이미지로 바뀝니다.</div></div>
+    <button class="go" id="rerender" style="margin-top:10px" disabled>왼쪽 설정 + 장면 수정으로 다시 만들기</button>
+  </section>
+</div>
+
+<div class="col">
+  <section>
+    <h2>내 영상</h2>
+    <ul class="plist" id="plist"><li><small>아직 없음</small></li></ul>
+  </section>
+</div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let M, opts, plan = null, cur = {name: null, v: null, media: []}, batch = null, styleEl = "caption", projs = [];
+
+async function api(path, body) {
+  const r = await fetch(path, body !== undefined ? {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)} : {});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+const clone = o => JSON.parse(JSON.stringify(o));
+const MOTION_KO = {zoomin: "확대", zoomout: "축소", panleft: "왼쪽 이동", panright: "오른쪽 이동", panup: "위로 이동", pandown: "아래로 이동"};
+
+/* ---------- 설정 패널 <-> opts ---------- */
+const SIMPLE = ["shop", "ai_mark", "seconds", "motion", "transition", "voice", "bgm", "bgm_volume", "sfx", "subtitles", "res", "fps", "model", "effort"];
+function fillSelect(el, items, sel) { el.innerHTML = items.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join(""); if (sel !== undefined) el.value = sel; }
+function bgmOptions() { fillSelect($("o_bgm"), [["auto", "AI 추천"], ["none", "없음"], ...M.bgms.map(b => [b, b.replace(/\.\w+$/, "")])], opts?.bgm); }
+
+function toPanel() {
+  for (const k of SIMPLE) { const el = $("o_" + k); if (!el) continue; el.type === "checkbox" ? el.checked = !!opts[k] : el.value = opts[k]; }
+  document.querySelectorAll(".seg[data-opt]").forEach(s => [...s.children].forEach(b => b.classList.toggle("on", b.dataset.v === opts[s.dataset.opt])));
+  [...$("tpl").children].forEach(b => b.classList.toggle("on", b.dataset.v === opts.template));
+  $("secv").textContent = opts.seconds; $("bgmv").textContent = Math.round(opts.bgm_volume * 100) + "%";
+  $("shopHint").hidden = opts.shop_pos !== "manual";
+  styleForm();
+}
+function bindPanel() {
+  for (const k of SIMPLE) {
+    const el = $("o_" + k); if (!el) continue;
+    el.addEventListener("input", () => {
+      opts[k] = el.type === "checkbox" ? el.checked : el.type === "range" || k === "fps" ? +el.value : el.value;
+      toPanel();
+    });
+  }
+  document.querySelectorAll(".seg[data-opt]").forEach(s => s.onclick = e => {
+    const b = e.target.closest("button"); if (!b) return; opts[s.dataset.opt] = b.dataset.v; toPanel();
+  });
+  $("tpl").onclick = e => {
+    const b = e.target.closest("button"); if (!b) return;
+    opts.template = b.dataset.v; opts.styles = clone(M.templates[b.dataset.v].styles); toPanel();
+  };
+  $("styleReset").onclick = () => { opts.styles = clone(M.templates[opts.template].styles); toPanel(); };
+  $("stab").onclick = e => { const b = e.target.closest("button"); if (!b) return; styleEl = b.dataset.v;
+    [...$("stab").children].forEach(x => x.classList.toggle("on", x === b)); styleForm(); };
+}
+
+/* ---------- 텍스트 디자인 ---------- */
+const SF = [
+  ["font", "글꼴", "font"], ["size", "글자 크기", "range", 20, 140, 1], ["color", "글자색", "color"], ["border_color", "테두리색", "color"],
+  ["border_w", "테두리 두께", "range", 0, 10, 1], ["bg_color", "배경색", "color"], ["bg_alpha", "배경 투명도 (0=없음)", "range", 0, 1, 0.05],
+  ["spacing", "자간", "range", 0, 5, 1], ["line_spacing", "줄간격", "range", 0, 40, 1], ["x", "X 위치 (%)", "range", 0, 100, 1], ["y", "Y 위치 (%)", "range", 0, 100, 0.5],
+];
+function styleForm() {
+  if (!opts.styles) opts.styles = clone(M.templates[opts.template].styles);
+  const st = opts.styles[styleEl];
+  let h = `<label>정렬</label><div class="seg" id="s_align">${[["L","왼쪽"],["C","가운데"],["R","오른쪽"]].map(([v,t]) => `<button data-v="${v}" class="${st.align===v?"on":""}">${t}</button>`).join("")}</div><div class="kv">`;
+  for (const [k, t, type, mn, mx, step] of SF) {
+    h += `<div><label>${t}${type === "range" ? ` <span class="val">${st[k]}</span>` : ""}</label>`;
+    if (type === "font") h += `<select data-k="${k}">${M.fonts.map(f => `<option ${f === st.font ? "selected" : ""}>${esc(f)}</option>`).join("")}</select>`;
+    else if (type === "color") h += `<input type="color" data-k="${k}" value="${st[k]}">`;
+    else h += `<input type="range" data-k="${k}" min="${mn}" max="${mx}" step="${step}" value="${st[k]}">`;
+    h += `</div>`;
+  }
+  h += `</div><label class="check"><input type="checkbox" data-k="shadow" ${st.shadow ? "checked" : ""}> 그림자</label>`;
+  if (styleEl === "shop" && opts.shop_pos === "auto") h += `<div class="hint">상점명 위치가 '자동'이면 X·Y·정렬은 템플릿 위치로 고정됩니다.</div>`;
+  $("sform").innerHTML = h;
+  $("sform").querySelectorAll("[data-k]").forEach(el => el.oninput = () => {
+    st[el.dataset.k] = el.type === "checkbox" ? el.checked : el.type === "range" ? +el.value : el.value;
+    const v = el.parentElement.querySelector(".val"); if (v) v.textContent = el.value;
+  });
+  $("s_align").onclick = e => { const b = e.target.closest("button"); if (!b) return; st.align = b.dataset.v; styleForm(); };
+}
+
+/* ---------- 이미지 / BGM 업로드, 미리듣기 ---------- */
+$("imgs").onchange = async e => {
+  batch = Math.random().toString(36).slice(2, 10);
+  $("imgprev").innerHTML = "";
+  for (const f of e.target.files) {
+    const r = await fetch(`/api/upload?kind=images&batch=${batch}&name=${encodeURIComponent(f.name)}`, {method: "POST", body: f});
+    if (!r.ok) { alert(`${f.name}: ${(await r.json()).error}`); continue; }
+    const u = URL.createObjectURL(f);
+    $("imgprev").insertAdjacentHTML("beforeend", f.type.startsWith("video") ? `<video src="${u}" muted style="width:46px;height:46px;object-fit:cover;border-radius:6px"></video>` : `<img src="${u}">`);
+  }
+};
+$("bgmUp").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = await fetch(`/api/upload?kind=bgm&name=${encodeURIComponent(f.name)}`, {method: "POST", body: f});
+  const j = await r.json(); if (!r.ok) return alert(j.error);
+  M.bgms = j.bgms; opts.bgm = j.name; bgmOptions(); toPanel();
+};
+function play(src, btn) {
+  const p = $("player");
+  if (!p.paused && p.dataset.src === src) { p.pause(); return; }
+  p.dataset.src = src; p.src = src; btn.textContent = "…"; p.play().finally(() => btn.textContent = btn.dataset.t);
+}
+$("voicePlay").dataset.t = $("voicePlay").textContent; $("bgmPlay").dataset.t = "▶";
+$("voicePlay").onclick = () => play("/voice/" + opts.voice, $("voicePlay"));
+$("bgmPlay").onclick = () => {
+  const b = opts.bgm === "auto" ? (plan?.bgm || M.bgms[0]) : opts.bgm;
+  if (b && b !== "none") play("/bgm/" + encodeURIComponent(b), $("bgmPlay"));
+};
+
+/* ---------- 프로젝트 / 버전 ---------- */
+async function checkClaude() {
+  const s = await api("/api/claude"), b = $("claude");
+  b.className = "badge " + (s.loggedIn ? "ok" : "bad");
+  b.textContent = !s.installed ? "Claude Code 미설치" : s.loggedIn ? "Claude Code 연결됨" : "Claude Code 로그인 필요";
+  b.title = s.loggedIn ? "" : "PowerShell 에서 claude 실행 후 /login";
+}
+async function refresh(selName, selV) {
+  projs = await api("/api/projects");
+  $("plist").innerHTML = projs.length ? projs.map(p => {
+    const t = p.thumbs.length ? `/media/${encodeURIComponent(p.name)}/thumb_v${p.thumbs.at(-1)}.jpg` : `/vision/${encodeURIComponent(p.name)}/0.jpg`;
+    return `<li data-n="${esc(p.name)}"><img src="${t}" alt="" onerror="this.style.visibility='hidden'"><div>${esc(p.name)}<br><small>버전 ${p.versions.length}개</small></div></li>`;
+  }).join("") : "<li><small>아직 없음</small></li>";
+  [...$("plist").children].forEach(li => li.dataset.n && (li.onclick = () => open(li.dataset.n)));
+  if (selName) await open(selName, selV);
+}
+async function open(name, v) {
+  const p = projs.find(x => x.name === name); if (!p) return;
+  v = v || p.versions.at(-1);
+  const d = await api(`/api/version/${encodeURIComponent(name)}/${v}`);
+  cur = {name, v, media: d.media};
+  plan = d.plan; opts = d.opts; if (!opts.styles) opts.styles = d.styles;
+  toPanel(); sceneEditor();
+  $("title").textContent = `${name} · v${v}`;
+  $("stage").innerHTML = `<video controls autoplay src="/media/${encodeURIComponent(name)}/${encodeURIComponent(name)}_v${v}.mp4?t=${Date.now()}"></video>`;
+  $("vers").innerHTML = `<small style="color:var(--sub)">버전 기록</small>` + p.versions.map(x => `<button data-v="${x}" class="${x === v ? "on" : ""}">v${x}</button>`).join("");
+  $("vers").querySelectorAll("button").forEach(b => b.onclick = () => open(name, +b.dataset.v));
+  $("thumbView").innerHTML = p.thumbs.includes(v) ? `<div class="hint">썸네일 v${v}: <a href="/media/${encodeURIComponent(name)}/thumb_v${v}.jpg" target="_blank">열기</a></div>
+    <img src="/media/${encodeURIComponent(name)}/thumb_v${v}.jpg?t=${Date.now()}" style="width:120px;border-radius:8px;margin-top:6px">` : "";
+  ["save", "thumb", "restore", "edit", "rerender", "addScene"].forEach(id => $(id).disabled = false);
+  $("restore").disabled = v === p.versions.at(-1);
+  [...$("plist").children].forEach(li => li.classList.toggle("on", li.dataset.n === name));
+}
+
+/* ---------- 장면 직접 수정 ---------- */
+function sceneEditor() {
+  $("p_keyword").value = plan.keyword || ""; $("p_brightness").value = plan.brightness || 0; $("brv").textContent = plan.brightness || 0;
+  const n = cur.media.length, idx = i => n ? ((i % n) + n) % n : 0;
+  const im = i => n ? `/vision/${encodeURIComponent(cur.name)}/${idx(i)}.jpg` : "";
+  $("scenes").innerHTML = plan.scenes.map((s, i) => `<div class="scene" data-i="${i}">
+    <div><img src="${im(s.image)}" data-act="img" title="미디어 ${idx(s.image)} (누르면 다음)"><div class="hint" style="margin:2px 0 0;text-align:center">${cur.media[idx(s.image)]?.video ? "🎬 영상" : "사진"}</div></div>
+    <div><div class="f">
+      <div><label>내레이션 (TTS)</label><input data-k="narration" value="${esc(s.narration)}"></div>
+      <div><label>화면 큰 글씨</label><textarea data-k="caption" rows="2">${esc(String(s.caption).replace(/\\n/g, "\n"))}</textarea></div>
+      <div><label>길이(초)</label><input type="number" data-k="seconds" step="0.5" min="1" value="${s.seconds}"></div>
+      <div><label>글씨 크기</label><input type="number" data-k="caption_size" placeholder="기본" value="${s.caption_size || ""}"></div>
+      <div><label>&nbsp;</label><button class="btn" data-act="del" title="장면 삭제">✕</button></div>
+    </div>
+    ${cur.media[idx(s.image)]?.video
+      ? `<label>영상 시작 지점 (초, 클립 길이 ${cur.media[idx(s.image)].dur}초)</label><input type="number" data-k="clip_start" step="0.5" min="0" value="${s.clip_start || 0}">`
+      : `<label>움직임</label><select data-k="motion">${M.motions.map(m => `<option value="${m}" ${m === s.motion ? "selected" : ""}>${MOTION_KO[m]}</option>`).join("")}</select>`}</div>
+  </div>`).join("");
+  $("scenes").querySelectorAll(".scene").forEach(row => {
+    const s = plan.scenes[+row.dataset.i];
+    row.querySelectorAll("[data-k]").forEach(el => el.oninput = () => {
+      const k = el.dataset.k;
+      s[k] = k === "seconds" || k === "clip_start" ? +el.value : k === "caption_size" ? (+el.value || undefined) : el.value;
+    });
+    row.querySelector("[data-act=img]").onclick = () => { s.image = (idx(s.image) + 1) % Math.max(n, 1); sceneEditor(); };
+    row.querySelector("[data-act=del]").onclick = () => { if (plan.scenes.length > 1) { plan.scenes.splice(+row.dataset.i, 1); sceneEditor(); } };
+  });
+}
+$("p_keyword").oninput = e => plan && (plan.keyword = e.target.value);
+$("p_brightness").oninput = e => { if (plan) plan.brightness = +e.target.value; $("brv").textContent = e.target.value; };
+$("addScene").onclick = () => { plan.scenes.push({narration: "새 문장이에요.", caption: "새 장면", image: 0, seconds: 2.5, motion: "zoomin"}); sceneEditor(); };
+
+/* ---------- 작업 실행 ---------- */
+const BUSY = ["go", "edit", "rerender", "thumb", "restore", "save"];
+async function run(path, body) {
+  BUSY.forEach(id => $(id).disabled = true);
+  const log = $("log"); log.hidden = false; log.textContent = "시작…";
+  try {
+    const {job} = await api(path, body);
+    while (true) {
+      await new Promise(r => setTimeout(r, 1200));
+      const j = await api("/api/job/" + job);
+      log.textContent = j.log.join("\n"); log.scrollTop = log.scrollHeight;
+      if (j.done) {
+        if (j.ok) await refresh(j.project || cur.name, path === "/api/thumb" ? cur.v : j.version);
+        else log.textContent += "\n\n실패했습니다.";
+        break;
+      }
+    }
+  } catch (e) { log.textContent = "오류: " + e.message; }
+  $("go").disabled = false;
+  if (cur.name) ["edit", "rerender", "thumb", "save"].forEach(id => $(id).disabled = false);
+}
+$("go").onclick = () => run("/api/new", {url: $("url").value, info: $("info").value, batch, opts});
+$("edit").onclick = () => run("/api/edit", {project: cur.name, v: cur.v, request: $("req").value});
+$("rerender").onclick = () => run("/api/rerender", {project: cur.name, v: cur.v, plan, opts});
+$("restore").onclick = () => run("/api/restore", {project: cur.name, v: cur.v});
+$("thumb").onclick = () => run("/api/thumb", {project: cur.name, v: cur.v});
+$("save").onclick = async () => {
+  try { const r = await api("/api/save", {project: cur.name, v: cur.v, dest: $("dest").value});
+    $("log").hidden = false; $("log").textContent = "저장됨: " + r.saved; }
+  catch (e) { alert(e.message); }
+};
+
+(async () => {
+  M = await api("/api/meta");
+  opts = clone(M.defaults); opts.styles = clone(M.templates[opts.template].styles);
+  $("tpl").innerHTML = Object.entries(M.templates).map(([k, t]) => `<button data-v="${k}">${esc(t.label)}<small>${esc(t.desc)}</small></button>`).join("");
+  fillSelect($("o_voice"), Object.entries(M.voices));
+  fillSelect($("o_motion"), [["auto", "AI 자동"], ["random", "랜덤"], ["zoomin", "확대"], ["zoomout", "축소"], ["panleft", "왼쪽 이동"], ["panright", "오른쪽 이동"], ["panup", "위로 이동"], ["pandown", "아래로 이동"]]);
+  fillSelect($("o_transition"), [["none", "없음 (컷)"], ["fade", "페이드"], ["slideup", "위로 밀기"], ["slideleft", "왼쪽 밀기"], ["wipeleft", "와이프"], ["zoomin", "줌"], ["circleopen", "원형"], ["dissolve", "디졸브"], ["random", "랜덤"]]);
+  bgmOptions();
+  $("dest").value = M.downloads;
+  bindPanel(); toPanel();
+  checkClaude(); refresh();
+})();
+</script></body></html>
